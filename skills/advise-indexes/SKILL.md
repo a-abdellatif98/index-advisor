@@ -1,6 +1,6 @@
 ---
 name: advise-indexes
-description: This skill should be used when the user asks which database indexes are missing, unused or redundant, or reviews a schema, model or migration for indexing, for example "missing index", "add an index", "unindexed foreign key", "slow where clause", "slow order by", "redundant index", "duplicate index", "composite index", "index_together", "add_index", "db_index", "@@index", "$table->index", "CREATE INDEX CONCURRENTLY", "algorithm: :concurrently", "AddIndexConcurrently", or when a new foreign key, filter column or sort column is added. Finds foreign keys with no index, queried columns with no index and prefix-covered indexes, and proposes a safe migration for PostgreSQL or MySQL.
+description: "This skill should be used when the user asks which database indexes are missing, unused or redundant, or reviews a schema, model or migration for indexing, for example \"missing index\", \"add an index\", \"unindexed foreign key\", \"slow where clause\", \"slow order by\", \"redundant index\", \"duplicate index\", \"composite index\", \"index_together\", \"add_index\", \"db_index\", \"@@index\", \"$table->index\", \"CREATE INDEX CONCURRENTLY\", \"algorithm: :concurrently\", \"AddIndexConcurrently\", or when a new foreign key, filter column or sort column is added. Finds foreign keys with no index, queried columns with no index and prefix-covered indexes, and proposes a safe migration for PostgreSQL or MySQL."
 version: 1.0.0
 ---
 
