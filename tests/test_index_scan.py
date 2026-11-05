@@ -498,3 +498,14 @@ def test_django_nested_models_package_shares_scope_with_migrations(tmp_path):
     }
     found = run(tmp_path, files)
     assert [(f.rule, f.table) for f in found] == [("IDX-REDUNDANT", "item")]
+
+
+def test_django_same_base_name_in_two_apps(tmp_path):
+    base = "class Base(models.Model):\n    owner = models.ForeignKey(Owner, db_index=%s, on_delete=models.CASCADE)\n    class Meta:\n        abstract = True\n"
+    files = {
+        "a/models/base.py": base % "False",
+        "a/models/item.py": "class Item(Base):\n    n = models.IntegerField()\n",
+        "z/models.py": "class Base(models.Model):\n    n = models.IntegerField()\n",
+    }
+    found = run(tmp_path, files)
+    assert [(f.rule, f.table, f.path) for f in found] == [("IDX-FK", "item", "a/models/base.py")]

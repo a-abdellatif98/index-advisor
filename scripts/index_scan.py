@@ -568,8 +568,9 @@ def django_body(name, classes, seen=()):
 
 def parse_django_model(schema, rel, text):
     local = django_classes(text, rel)
-    classes = {**schema.django_classes, **local}
     scope = app_scope(rel)
+    classes = {n: c for (sc, n), c in schema.django_classes.items() if sc == scope}
+    classes.update(local)
     for name in local:
         if classes[name]["abstract"] or not django_is_model(name, classes):
             continue
@@ -996,7 +997,8 @@ def scan(root, engine="auto"):
     apps = {str(PurePosixPath(rel).parent) for _, rel, k in files if k == "django_model"}
     for path, rel, k in files:
         if k == "django_model" or (k is None and path.suffix == ".py" and str(PurePosixPath(rel).parent) in apps):
-            schema.django_classes.update(django_classes(read_source(path), rel))
+            for name, info in django_classes(read_source(path), rel).items():
+                schema.django_classes[(app_scope(rel), name)] = info
     for kind in PARSE_ORDER:
         for path, rel, k in files:
             if k == kind:
