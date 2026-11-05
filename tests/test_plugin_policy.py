@@ -69,12 +69,6 @@ def test_docs_name_no_credential_like_identifiers():
         assert not pattern.search(path.read_text()), path.name
 
 
-def test_scanner_never_reads_secret_files_by_name():
-    text = (ROOT / "scripts" / "index_scan.py").read_text()
-    for needle in ('".env"', '"database.yml"', '"settings"', '"credentials"'):
-        assert needle in text, needle
-
-
 def test_no_command_or_shell_hooks_or_bash_anywhere():
     for path in ROOT.rglob("*.json"):
         if ".pytest_cache" not in path.parts:

@@ -20,7 +20,7 @@ Treat the argument as a path, a table or model name, or free text. If it is empt
 
    Never open `.env`, `.env.*`, `config/database.yml`, `settings.py` `DATABASES`, `config/database.php`, the Prisma `datasource` block, credential files, or anything holding tokens or database URLs. In `schema.prisma` read only the `model` blocks.
 
-2. **Build the index map**: for each table list its columns, primary key, foreign keys and every index (columns in order, unique or not, partial or not). Migrations only: replay them in order, honouring removed indexes.
+2. **Build the index map**: for each table list its columns, primary key, foreign keys and every index (columns in order, unique or not, partial or not). Migrations only: replay them in order, and check removed indexes by hand (the scanner handles only Rails `remove_index`).
 
 3. **Foreign keys**: report each FK column (and each `*_id` reference column) that no index starts with. Apply the engine rule in `skills/advise-indexes/references/engines.md`.
 

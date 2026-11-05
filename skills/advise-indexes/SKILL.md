@@ -11,7 +11,7 @@ An index trades write cost and disk for read speed. A missing one makes a query 
 ## What to look for
 
 1. **Foreign key with no index.** The referencing column (`orders.user_id`) has no index starting with it. Joins and "all orders of this user" scan the table, and in PostgreSQL deleting a parent row scans the child table. Engine rule: `references/engines.md`.
-2. **Reference column with no constraint.** A `*_id` column, a `references`/`belongs_to`/`foreignId` column or a Prisma relation field with no index. No engine adds an index for a column that has no foreign key constraint.
+2. **Reference column with no constraint.** A `*_id` column, a `references`/`belongs_to`/`foreignId` column with no index. No engine adds an index for a column that has no foreign key constraint.
 3. **Queried column with no index.** A column in `where`, `find_by`, `filter`, `order`, `order_by`, `orderBy` or a unique lookup (`find_by(email:)`, `findUnique`) that no index starts with.
 4. **Composite opportunity.** The same query filters on `a` and sorts or ranges on `b`: one index on `(a, b)` beats two single-column indexes. Equality columns first, then the range or sort column.
 5. **Redundant index.** An index whose columns are a leading prefix of another index (or of the primary key), or an exact duplicate. A unique index is not redundant just because a wider index exists, it enforces uniqueness.
@@ -20,7 +20,7 @@ An index trades write cost and disk for read speed. A missing one makes a query 
 ## Workflow
 
 1. **Detect framework and engine.** Read the schema files (`references/rails.md`, `django.md`, `laravel.md`, `prisma-node.md`). Ask for the engine when it is not stated: PostgreSQL and MySQL differ on foreign keys, partial indexes and online creation.
-2. **Build the index map** per table: columns, primary key, foreign keys, every index with column order, uniqueness and any condition. When there is only migrations, replay them in order and honour removed indexes.
+2. **Build the index map** per table: columns, primary key, foreign keys, every index with column order, uniqueness and any condition. When there is only migrations, replay them in order. The scanner honours only Rails `remove_index`; check Laravel `dropIndex`, Knex `dropIndex` and Django `RemoveIndex` by hand.
 3. **Check foreign keys**, then **queried columns** in the code, then **redundancy**.
 4. **Judge value before recommending.** A column with two values (a flag, a state), a table of a few hundred rows, or a rarely run report rarely justifies an index. Say so instead of adding one.
 5. **Check the write side.** Each index slows inserts and updates on its table. Prefer one composite index over several overlapping ones.

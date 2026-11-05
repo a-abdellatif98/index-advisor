@@ -437,3 +437,46 @@ def test_descending_index_is_not_judged_redundant(tmp_path):
         "    class Meta:\n        indexes = [models.Index(fields=['a']), models.Index(fields=['a', '-b'])]\n"
     )
     assert not rules(run(tmp_path, {"app/models.py": models}), "IDX-REDUNDANT")
+
+
+def test_unreadable_paths_do_not_crash(tmp_path):
+    project(tmp_path, {"db/schema.rb": RAILS_SCHEMA})
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "broken.rb").symlink_to(tmp_path / "nowhere.rb")
+    (tmp_path / "app" / "dir.rb").mkdir()
+    assert ("IDX-FK", "orders", "user_id") in rules(scanner.scan(tmp_path))
+
+
+def test_django_model_with_custom_abstract_base(tmp_path):
+    models = (
+        "class Base(models.Model):\n    owner = models.ForeignKey(Owner, db_index=False, on_delete=models.CASCADE)\n"
+        "    class Meta:\n        abstract = True\n\n"
+        "class Book(Base):\n    title = models.CharField(max_length=1)\n"
+    )
+    assert rules(run(tmp_path, {"shop/models.py": models}), "IDX-FK") == [("IDX-FK", "book", "owner_id")]
+
+
+def test_django_same_class_name_in_two_apps(tmp_path):
+    fk = "class Profile(models.Model):\n    user = models.ForeignKey(User, on_delete=models.CASCADE, db_index=%s)\n"
+    files = {"a/models.py": fk % "True", "b/models.py": fk % "False"}
+    found = run(tmp_path, files)
+    assert [(f.rule, f.path) for f in found] == [("IDX-FK", "b/models.py")]
+
+
+def test_non_btree_and_prefix_indexes_are_not_redundant(tmp_path):
+    models = (
+        "class T(models.Model):\n    tags = models.TextField()\n"
+        "    class Meta:\n        indexes = [GinIndex(fields=['tags'], name='g'), models.Index(fields=['tags'], name='p')]\n"
+    )
+    schema = (
+        'create_table "a" do |t|\n  t.text "body"\n  t.index ["body"], name: "ft", type: :fulltext\n'
+        '  t.index ["body"], name: "plain"\n  t.index ["body"], name: "pre", length: 10\n  t.index ["body", "x"], name: "w"\nend\n'
+    )
+    assert not rules(run(tmp_path, {"app/models.py": models}), "IDX-REDUNDANT")
+    assert [f.message for f in run(tmp_path / "r", {"db/schema.rb": schema}) if f.rule == "IDX-REDUNDANT"][0].startswith("index plain")
+
+
+def test_prisma_multiline_index_attribute(tmp_path):
+    prisma = "model Post {\n  id Int @id\n  title String\n  slug String\n  @@index([\n    title,\n    slug\n  ])\n}\n"
+    files = {"prisma/schema.prisma": prisma, "src/a.ts": "prisma.post.findMany({ where: { title: 'x' } })\n"}
+    assert not rules(run(tmp_path, files), "IDX-QUERY")

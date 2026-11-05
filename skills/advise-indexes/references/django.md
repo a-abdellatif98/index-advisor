@@ -5,7 +5,7 @@
 - `models.py` (and `models/` packages): fields, `ForeignKey`, `Meta.indexes`, `Meta.constraints`, `unique_together`, `index_together`.
 - Migrations: `AddIndex`, `AddField`, `AddConstraint`, `RunSQL`. The model file is the source of truth; migrations show what was applied.
 - `ForeignKey` creates an index unless `db_index=False`. `OneToOneField` is unique. A plain `CharField(unique=True)` or `db_index=True` is indexed.
-- Query sites: `.filter(col=...)`, `.get(...)`, `.exclude(...)`, `.order_by('-created')`. Lookups such as `__icontains` on PostgreSQL need a different index type (trigram) than a plain btree, and `__startswith` or `__icontains` with a leading wildcard will not use a btree at all.
+- Query sites: `.filter(col=...)`, `.get(...)`, `.exclude(...)`, `.order_by('-created')`. Lookups such as `__icontains` on PostgreSQL need a different index type (trigram) than a plain btree, and `__contains`, `__icontains` and `__endswith` cannot use a btree at all.
 
 ## Patterns
 

@@ -149,12 +149,22 @@ def variants(word):
 class Schema:
     def __init__(self):
         self.tables = {}
+        self._by_base = None
 
     def find(self, name):
-        return next((self.tables[v] for v in variants(name) if v in self.tables), None)
+        if self._by_base is None:
+            self._by_base = {}
+            for key, table in self.tables.items():
+                self._by_base.setdefault(key.split("@")[0], []).append(table)
+        for v in variants(name):
+            found = self._by_base.get(v)
+            if found:
+                return found[0] if len(found) == 1 else None
+        return None
 
-    def table(self, name):
-        key = normalize(name)
+    def table(self, name, scope=None):
+        key = normalize(name) + (f"@{scope}" if scope else "")
+        self._by_base = None
         if key not in self.tables:
             self.tables[key] = Table(name)
         return self.tables[key]
@@ -182,9 +192,12 @@ class Schema:
 
 
 def read_source(path):
-    if path.stat().st_size > MAX_BYTES:
+    try:
+        if path.stat().st_size > MAX_BYTES:
+            return ""
+        return path.read_text(errors="ignore")
+    except OSError:
         return ""
-    return path.read_text(errors="ignore")
 
 
 def is_secret_name(name):
@@ -203,8 +216,8 @@ def iter_files(root):
     for folder, dirs, names in os.walk(root):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith("."))
         for name in sorted(names):
-            if not is_secret_name(name):
-                path = Path(folder) / name
+            path = Path(folder) / name
+            if not is_secret_name(name) and path.is_file():
                 yield path, path.relative_to(root).as_posix()
 
 
@@ -338,7 +351,8 @@ def rb_columns(rest):
 
 def rb_index(schema, table, rest, path, line, text):
     cols = rb_columns(rest)
-    if not cols or re.search(r"\bwhere:", rest) or re.search(r"\busing:\s*:?(?!btree)\w", rest):
+    if not cols or re.search(r"\bwhere:", rest) or re.search(r"\busing:\s*:?(?!btree)\w", rest) \
+            or re.search(r"\b(?:type|length|opclass):", rest):
         return
     name = re.search(r"name:\s*[\"'](\w+)", rest)
     ordered = bool(re.search(r"\border:", rest))
@@ -494,9 +508,9 @@ def django_meta(schema, table, stmt, path, line, text, skip_declared=False):
     body = stmt.split("=", 1)[1]
     if key == "indexes" or key == "constraints":
         marker = "Index(" if key == "indexes" else "UniqueConstraint("
-        for seg in body.split(marker)[1:]:
+        for seg in re.split(r"(?<![A-Za-z])" + re.escape(marker), body)[1:]:
             fields_m = re.search(r"fields\s*=\s*\[([^\]]*)\]", seg)
-            if not fields_m or "condition=" in seg:
+            if not fields_m or re.search(r"condition=|opclasses=|include=", seg):
                 continue
             cols, ordered = django_columns(table, fields_m.group(1))
             name = re.search(r"name\s*=\s*['\"](\w+)", seg)
@@ -510,29 +524,67 @@ def django_meta(schema, table, stmt, path, line, text, skip_declared=False):
             schema.index(table, cols, key == "unique_together", None, path, line, text, ordered=ordered)
 
 
-def parse_django_model(schema, rel, text):
-    table, in_meta, meta_indent = None, False, 0
+def app_scope(rel):
+    parts = PurePosixPath(rel).parts[:-1]
+    if parts and parts[-1] in {"models", "migrations"}:
+        parts = parts[:-1]
+    return "/".join(parts)
+
+
+def django_classes(text):
+    classes, current = {}, None
     for start, indent, stmt in python_statements(text):
         head = re.match(r"class\s+(\w+)\s*(?:\((.*?)\))?\s*:", stmt)
         if head and indent == 0:
-            is_model = "Model" in (head.group(2) or "")
-            table = schema.table(head.group(1).lower()) if is_model else None
-            in_meta = False
+            bases = re.findall(r"[\w.]+", head.group(2) or "")
+            current = classes[head.group(1)] = {"bases": bases, "body": [], "abstract": False}
+        elif current is not None:
+            current["body"].append((start, indent, stmt))
+            if re.match(r"abstract\s*=\s*True", stmt):
+                current["abstract"] = True
+    return classes
+
+
+def django_is_model(name, classes, seen=()):
+    bases = classes[name]["bases"]
+    return any(
+        b.split(".")[-1] == "Model" or "Model" in b.split(".")[-1]
+        or (b in classes and b not in seen and django_is_model(b, classes, seen + (name,)))
+        for b in bases
+    )
+
+
+def django_body(name, classes, seen=()):
+    own = classes[name]["body"]
+    inherited = []
+    for b in classes[name]["bases"]:
+        if b in classes and b not in seen and classes[b]["abstract"]:
+            inherited += django_body(b, classes, seen + (name,))
+    return inherited + own
+
+
+def parse_django_model(schema, rel, text):
+    classes = django_classes(text)
+    scope = app_scope(rel)
+    for name in classes:
+        if classes[name]["abstract"] or not django_is_model(name, classes):
             continue
-        if table is None:
-            continue
-        if head and head.group(1) == "Meta":
-            in_meta, meta_indent = True, indent
-            continue
-        if in_meta and indent <= meta_indent:
-            in_meta = False
-        if in_meta:
-            if "=" in stmt:
-                django_meta(schema, table, stmt, rel, start, stmt)
-            continue
-        m = re.match(r"(\w+)\s*=\s*(?:\w+\.)*(\w+)\((.*)\)\s*$", stmt, re.S)
-        if m and (m.group(2) in {"ForeignKey", "OneToOneField"} or m.group(2).endswith("Field")):
-            django_field(schema, table, m.group(1), m.group(2), m.group(3), rel, start, stmt)
+        table = schema.table(name.lower(), scope)
+        in_meta, meta_indent = False, 0
+        for start, indent, stmt in django_body(name, classes):
+            head = re.match(r"class\s+(\w+)\s*(?:\((.*?)\))?\s*:", stmt)
+            if head and head.group(1) == "Meta":
+                in_meta, meta_indent = True, indent
+                continue
+            if in_meta and indent <= meta_indent:
+                in_meta = False
+            if in_meta:
+                if "=" in stmt:
+                    django_meta(schema, table, stmt, rel, start, stmt)
+                continue
+            m = re.match(r"(\w+)\s*=\s*(?:\w+\.)*(\w+)\((.*)\)\s*$", stmt, re.S)
+            if m and (m.group(2) in {"ForeignKey", "OneToOneField"} or m.group(2).endswith("Field")):
+                django_field(schema, table, m.group(1), m.group(2), m.group(3), rel, start, stmt)
 
 
 def parse_django_migration(schema, rel, text):
@@ -542,7 +594,7 @@ def parse_django_migration(schema, rel, text):
         model = re.search(r"model_name\s*=\s*['\"](\w+)", seg)
         if not model:
             continue
-        table = schema.table(model.group(1))
+        table = schema.table(model.group(1), app_scope(rel))
         line = line_at(1, text, m.start())
         if m.group(1) == "AddField":
             name = re.search(r"\bname\s*=\s*['\"](\w+)", seg)
@@ -637,18 +689,17 @@ def parse_prisma(schema, rel, text):
         table = schema.table(block.group(1))
         table.pk = ()
         base = line_at(1, text, block.start(2))
+        for m in re.finditer(r"@@(index|unique|id)\(\s*\[([^\]]*)\]", block.group(2)):
+            inner = re.sub(r"\([^)]*\)", "", m.group(2))
+            cols = tuple(re.findall(r"\w+", inner))
+            if m.group(1) == "id":
+                table.pk = cols
+            else:
+                schema.index(table, cols, m.group(1) == "unique", None, rel, line_at(base, block.group(2), m.start()),
+                             "", ordered="sort:" in m.group(2) and "Desc" in m.group(2))
         for offset, raw in enumerate(block.group(2).split("\n")):
             line = base + offset
             s = raw.strip()
-            m = re.match(r"@@(index|unique|id)\(\s*\[([^\]]*)\]", s)
-            if m:
-                inner = re.sub(r"\([^)]*\)", "", m.group(2))
-                cols = tuple(re.findall(r"\w+", inner))
-                if m.group(1) == "id":
-                    table.pk = cols
-                else:
-                    schema.index(table, cols, m.group(1) == "unique", None, rel, line, raw, ordered="sort:" in m.group(2) and "Desc" in m.group(2))
-                continue
             m = re.match(r"(\w+)\s+(\w+)(\?|\[\])?\s*(.*)$", s)
             if not m or s.startswith("@@"):
                 continue

@@ -27,7 +27,7 @@ class AddIndexInvoicesOnCustomerId extends Migration
 
     public function up(): void
     {
-        DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS invoices_customer_id_index ON invoices (customer_id)');
+        DB::statement('CREATE INDEX CONCURRENTLY invoices_customer_id_index ON invoices (customer_id)');
     }
 
     public function down(): void

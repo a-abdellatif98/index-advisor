@@ -2,7 +2,7 @@
 
 A plugin that finds missing and redundant database indexes from your schema and migration files: foreign keys with no index, columns used in `WHERE`, `ORDER BY` and unique lookups with no index, and indexes another index already covers.
 
-It pairs with three sibling plugins:
+It pairs with these sibling plugins:
 
 - [n-plus-one-hunter](https://github.com/a-abdellatif98/n-plus-one-hunter): a per-row query is only cheap when the foreign key it filters on is indexed, so fix the N+1 and then index the key.
 - [query-plan-explainer](https://github.com/a-abdellatif98/query-plan-explainer): confirm with `EXPLAIN` that the new index is used.

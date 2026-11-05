@@ -19,7 +19,7 @@ model Post {
 }
 ```
 
-Online creation: `prisma migrate dev --create-only` writes the SQL without applying it. For PostgreSQL edit the file to `CREATE INDEX CONCURRENTLY`, keep it as the only statement in that migration (the command cannot run inside a transaction block), and check against your Prisma version. For MySQL use the `ALTER TABLE ... ADD INDEX ..., ALGORITHM=INPLACE, LOCK=NONE` form.
+Online creation: `prisma migrate dev --create-only` writes the SQL without applying it. For PostgreSQL edit the file to `CREATE INDEX CONCURRENTLY`, drop any INVALID leftover from a failed run before retrying, keep it as the only statement in that migration (the command cannot run inside a transaction block), and check against your Prisma version. For MySQL use the `ALTER TABLE ... ADD INDEX ..., ALGORITHM=INPLACE, LOCK=NONE` form.
 
 ## Knex
 
@@ -33,7 +33,7 @@ Online creation for PostgreSQL: turn the transaction off for that migration file
 exports.config = { transaction: false };
 
 exports.up = (knex) =>
-  knex.raw('CREATE INDEX CONCURRENTLY IF NOT EXISTS orders_user_id_idx ON orders (user_id)');
+  knex.raw('CREATE INDEX CONCURRENTLY orders_user_id_idx ON orders (user_id)');
 
 exports.down = (knex) => knex.raw('DROP INDEX CONCURRENTLY IF EXISTS orders_user_id_idx');
 ```
