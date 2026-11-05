@@ -1,0 +1,25 @@
+{
+  "name": "index-advisor",
+  "description": "Finds missing and redundant database indexes from migrations and schema files (Rails, Django, Laravel, Prisma, Knex): foreign keys with no index, columns used in WHERE, ORDER BY and unique lookups with no index, and prefix-covered duplicates, with PostgreSQL vs MySQL guidance and a safe, concurrent way to add each index",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ahmed",
+    "email": "ahmed.abdelatife@gmail.com"
+  },
+  "homepage": "https://github.com/a-abdellatif98/index-advisor",
+  "repository": "https://github.com/a-abdellatif98/index-advisor",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "keywords": [
+    "database",
+    "django",
+    "indexes",
+    "knex",
+    "laravel",
+    "mysql",
+    "performance",
+    "postgresql",
+    "prisma",
+    "rails"
+  ]
+}
