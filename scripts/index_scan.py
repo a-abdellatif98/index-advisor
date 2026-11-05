@@ -150,6 +150,7 @@ class Schema:
     def __init__(self):
         self.tables = {}
         self._by_base = None
+        self.django_classes = {}
 
     def find(self, name):
         if self._by_base is None:
@@ -526,12 +527,14 @@ def django_meta(schema, table, stmt, path, line, text, skip_declared=False):
 
 def app_scope(rel):
     parts = PurePosixPath(rel).parts[:-1]
-    if parts and parts[-1] in {"models", "migrations"}:
-        parts = parts[:-1]
+    for marker in ("models", "migrations"):
+        if marker in parts:
+            parts = parts[:parts.index(marker)]
+            break
     return "/".join(parts)
 
 
-def django_classes(text):
+def django_classes(text, rel):
     classes, current = {}, None
     for start, indent, stmt in python_statements(text):
         head = re.match(r"class\s+(\w+)\s*(?:\((.*?)\))?\s*:", stmt)
@@ -539,7 +542,7 @@ def django_classes(text):
             bases = re.findall(r"[\w.]+", head.group(2) or "")
             current = classes[head.group(1)] = {"bases": bases, "body": [], "abstract": False}
         elif current is not None:
-            current["body"].append((start, indent, stmt))
+            current["body"].append((start, indent, stmt, rel))
             if re.match(r"abstract\s*=\s*True", stmt):
                 current["abstract"] = True
     return classes
@@ -548,7 +551,7 @@ def django_classes(text):
 def django_is_model(name, classes, seen=()):
     bases = classes[name]["bases"]
     return any(
-        b.split(".")[-1] == "Model" or "Model" in b.split(".")[-1]
+        b.split(".")[-1].endswith("Model")
         or (b in classes and b not in seen and django_is_model(b, classes, seen + (name,)))
         for b in bases
     )
@@ -564,14 +567,15 @@ def django_body(name, classes, seen=()):
 
 
 def parse_django_model(schema, rel, text):
-    classes = django_classes(text)
+    local = django_classes(text, rel)
+    classes = {**schema.django_classes, **local}
     scope = app_scope(rel)
-    for name in classes:
+    for name in local:
         if classes[name]["abstract"] or not django_is_model(name, classes):
             continue
         table = schema.table(name.lower(), scope)
         in_meta, meta_indent = False, 0
-        for start, indent, stmt in django_body(name, classes):
+        for start, indent, stmt, src in django_body(name, classes):
             head = re.match(r"class\s+(\w+)\s*(?:\((.*?)\))?\s*:", stmt)
             if head and head.group(1) == "Meta":
                 in_meta, meta_indent = True, indent
@@ -580,11 +584,11 @@ def parse_django_model(schema, rel, text):
                 in_meta = False
             if in_meta:
                 if "=" in stmt:
-                    django_meta(schema, table, stmt, rel, start, stmt)
+                    django_meta(schema, table, stmt, src, start, stmt)
                 continue
             m = re.match(r"(\w+)\s*=\s*(?:\w+\.)*(\w+)\((.*)\)\s*$", stmt, re.S)
             if m and (m.group(2) in {"ForeignKey", "OneToOneField"} or m.group(2).endswith("Field")):
-                django_field(schema, table, m.group(1), m.group(2), m.group(3), rel, start, stmt)
+                django_field(schema, table, m.group(1), m.group(2), m.group(3), src, start, stmt)
 
 
 def parse_django_migration(schema, rel, text):
@@ -989,6 +993,10 @@ def scan(root, engine="auto"):
     if "rails_schema" in kinds:
         files = [f for f in files if f[2] != "rails_migration"]
     schema = Schema()
+    apps = {str(PurePosixPath(rel).parent) for _, rel, k in files if k == "django_model"}
+    for path, rel, k in files:
+        if k == "django_model" or (k is None and path.suffix == ".py" and str(PurePosixPath(rel).parent) in apps):
+            schema.django_classes.update(django_classes(read_source(path), rel))
     for kind in PARSE_ORDER:
         for path, rel, k in files:
             if k == kind:

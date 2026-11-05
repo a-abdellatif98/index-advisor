@@ -480,3 +480,21 @@ def test_prisma_multiline_index_attribute(tmp_path):
     prisma = "model Post {\n  id Int @id\n  title String\n  slug String\n  @@index([\n    title,\n    slug\n  ])\n}\n"
     files = {"prisma/schema.prisma": prisma, "src/a.ts": "prisma.post.findMany({ where: { title: 'x' } })\n"}
     assert not rules(run(tmp_path, files), "IDX-QUERY")
+
+
+def test_django_abstract_base_in_another_file(tmp_path):
+    files = {
+        "shop/base.py": "class Stamped(models.Model):\n    owner = models.ForeignKey(Owner, db_index=False, on_delete=models.CASCADE)\n    class Meta:\n        abstract = True\n",
+        "shop/models.py": "from .base import Stamped\n\nclass Thing(Stamped):\n    name = models.CharField(max_length=1)\n\nclass ThingForm(ModelForm):\n    x = forms.CharField()\n",
+    }
+    found = run(tmp_path, files)
+    assert [(f.rule, f.table, f.path) for f in found] == [("IDX-FK", "thing", "shop/base.py")]
+
+
+def test_django_nested_models_package_shares_scope_with_migrations(tmp_path):
+    files = {
+        "shop/models/item.py": "class Item(models.Model):\n    owner = models.IntegerField()\n    class Meta:\n        indexes = [models.Index(fields=['owner', 'id'], name='o_id')]\n",
+        "shop/migrations/0002_x.py": "operations = [\n    migrations.AddIndex(\n        model_name='item',\n        index=models.Index(fields=['owner'], name='o_u'),\n    ),\n]\n",
+    }
+    found = run(tmp_path, files)
+    assert [(f.rule, f.table) for f in found] == [("IDX-REDUNDANT", "item")]
